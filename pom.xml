@@ -8,8 +8,8 @@
   <version>0.0.1-SNAPSHOT</version>
   <packaging>jar</packaging>
 
-  <name>grpc-java-hello-world</name>
-  <description>gRPC Java Example</description>
+  <name>replicated-log-master</name>
+  <description>replicated-log-master</description>
 
   <parent>
     <groupId>org.springframework.boot</groupId>
