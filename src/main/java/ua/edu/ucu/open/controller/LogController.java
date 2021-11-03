@@ -6,6 +6,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import ua.edu.ucu.open.exception.InconsistentException;
+import ua.edu.ucu.open.model.WriteConcern;
 import ua.edu.ucu.open.service.LogService;
 
 import java.util.List;
@@ -29,11 +30,11 @@ public class LogController {
     @RequestMapping(
             produces = {"application/json"},
             method = RequestMethod.POST)
-    public ResponseEntity<Void> addLog(@RequestBody String log) {
+    public ResponseEntity<Void> addLog(@RequestBody LogRequest logRequest) {
         try {
-            logService.add(log);
+            logService.add(logRequest.getLog(), WriteConcern.enumFromConcern(logRequest.getWriteConcern()));
         } catch (InconsistentException e) {
-
+            return new ResponseEntity<>(HttpStatus.BAD_REQUEST);
         }
         return new ResponseEntity<>(HttpStatus.OK);
     }
