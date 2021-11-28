@@ -22,7 +22,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <java.version>1.8</java.version>
-    <grpc-spring-boot-starter.version>3.0.0</grpc-spring-boot-starter.version>
+    <grpc-spring-boot-starter.version>4.5.9</grpc-spring-boot-starter.version>
     <os-maven-plugin.version>1.6.1</os-maven-plugin.version>
     <protobuf-maven-plugin.version>0.6.1</protobuf-maven-plugin.version>
     <lombok.version>1.18.20</lombok.version>
@@ -32,6 +32,11 @@
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-web</artifactId>
+      <version>5.3.11</version>
     </dependency>
     <dependency>
       <groupId>io.github.lognet</groupId>

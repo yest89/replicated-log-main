@@ -3,8 +3,27 @@ syntax = "proto3";
 option java_multiple_files = true;
 package ua.edu.ucu.open.grpc.log;
 
+message HealthCheckRequest {
+  string service = 1;
+}
+
+message HealthCheckResponse {
+  enum ServingStatus {
+    UNKNOWN = 0;
+    SERVING = 1;
+    NOT_SERVING = 2;
+    SERVICE_UNKNOWN = 3;
+  }
+  ServingStatus status = 1;
+}
+
+service Health {
+  rpc Check(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
 message Log {
   string Log = 1;
+  int32 Ordinal = 2;
 }
 
 message Acknowledge {

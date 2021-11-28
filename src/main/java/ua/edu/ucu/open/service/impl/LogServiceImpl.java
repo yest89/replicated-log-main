@@ -1,8 +1,8 @@
 package ua.edu.ucu.open.service.impl;
 
 import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.MoreExecutors;
 import lombok.RequiredArgsConstructor;
-import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import ua.edu.ucu.open.exception.InconsistentException;
@@ -14,6 +14,9 @@ import ua.edu.ucu.open.repo.LogRepository;
 import ua.edu.ucu.open.service.LogService;
 
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
 @Service
@@ -21,11 +24,14 @@ import java.util.List;
 public class LogServiceImpl implements LogService {
 
     private static final String ACK = "ACK";
+    private static final AtomicInteger LOG_COUNTER = new AtomicInteger(1);
 
     private final LogRepository logRepository;
 
     private final AsyncReplicatedLogClient asyncReplicatedLogClient;
     private final AsyncReplicatedLogClientSecond asyncReplicatedLogClientSecond;
+
+    private final CountDownLatch countDownLatch = new CountDownLatch(1);
 
     @Override
     public List<String> getAll() {
@@ -36,12 +42,13 @@ public class LogServiceImpl implements LogService {
     public void add(String logMessage, WriteConcern writeConcern) throws InconsistentException {
         logRepository.add(logMessage);
         saveLog(writeConcern, logMessage);
-        log.info("finished");
+        log.info("finished adding log operation!");
     }
 
     private void saveLog(WriteConcern writeConcern, String logMessage) throws InconsistentException {
-        ListenableFuture<Acknowledge> acknowledgeFuture = asyncReplicatedLogClient.storeLog(logMessage);
-        ListenableFuture<Acknowledge> acknowledgeFutureSecond = asyncReplicatedLogClientSecond.storeLog(logMessage);
+        ListenableFuture<Acknowledge> acknowledgeFuture = asyncReplicatedLogClient.storeLog(logMessage, LOG_COUNTER.getAndIncrement());
+        ListenableFuture<Acknowledge> acknowledgeFutureSecond = asyncReplicatedLogClientSecond.storeLog(logMessage, LOG_COUNTER.getAndIncrement());
+
         switch (writeConcern) {
             case ONLY_FROM_MASTER:
                 return;
@@ -60,33 +67,46 @@ public class LogServiceImpl implements LogService {
     private void doMasterAndOneSecondary(
             ListenableFuture<Acknowledge> acknowledgeFuture,
             ListenableFuture<Acknowledge> acknowledgeFutureSecond) throws InconsistentException {
-        while (!acknowledgeFuture.isDone() || acknowledgeFutureSecond.isDone()) {
+        try {
+            acknowledgeFuture.addListener(new LogExecutionEvent(), MoreExecutors.directExecutor());
+            acknowledgeFutureSecond.addListener(new LogExecutionEvent(), MoreExecutors.directExecutor());
+            countDownLatch.await();
+        } catch (Exception e) {
+            log.error("One of the slaves are failed!");
+            throw new InconsistentException("One of the slaves are failed!");
         }
-        if (acknowledgeFuture.isDone() && validateAckMessage(acknowledgeFuture)) {
-            return;
-        }
-        if (acknowledgeFutureSecond.isDone() && validateAckMessage(acknowledgeFutureSecond)) {
-            return;
-        }
-        log.error("Problem with write concern policy!");
-        throw new InconsistentException("Problem with write concern policy!");
     }
 
     private void doMasterAndTwoSecondaries(
             ListenableFuture<Acknowledge> acknowledgeFuture,
             ListenableFuture<Acknowledge> acknowledgeFutureSecond) throws InconsistentException {
-        while (!acknowledgeFuture.isDone() && acknowledgeFutureSecond.isDone()) {
+
+        Acknowledge acknowledgeFromFirstSlave;
+        Acknowledge acknowledgeFromSecondSlave;
+        boolean success;
+        try {
+            acknowledgeFromFirstSlave = acknowledgeFuture.get();
+            acknowledgeFromSecondSlave = acknowledgeFutureSecond.get();
+            success = validateAckMessage(acknowledgeFromFirstSlave) && validateAckMessage(acknowledgeFromSecondSlave);
+        } catch (InterruptedException | ExecutionException e) {
+            log.error("One of the slaves are failed!");
+            throw new InconsistentException("One of the slaves are failed!");
         }
-        if (!(validateAckMessage(acknowledgeFuture) && validateAckMessage(acknowledgeFutureSecond))) {
+
+        if (!success) {
             log.error("Problem with write concern policy!");
             throw new InconsistentException("Problem with write concern policy!");
         }
     }
 
-    //TODO intentionally to skip processing exception/exception policies
-    @SneakyThrows
-    private boolean validateAckMessage(ListenableFuture<Acknowledge> acknowledgeFuture) {
-        return (acknowledgeFuture.isDone() && ACK.equals(acknowledgeFuture.get().getMessage()))
-                ? Boolean.TRUE : Boolean.FALSE;
+    private boolean validateAckMessage(Acknowledge acknowledge) {
+        return (acknowledge != null && ACK.equals(acknowledge.getMessage())) ? Boolean.TRUE : Boolean.FALSE;
+    }
+
+    public class LogExecutionEvent implements Runnable {
+        @Override
+        public void run() {
+            countDownLatch.countDown();
+        }
     }
 }

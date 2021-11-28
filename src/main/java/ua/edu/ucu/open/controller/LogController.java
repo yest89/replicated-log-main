@@ -34,7 +34,7 @@ public class LogController {
         try {
             logService.add(logRequest.getLog(), WriteConcern.enumFromConcern(logRequest.getWriteConcern()));
         } catch (InconsistentException e) {
-            return new ResponseEntity<>(HttpStatus.BAD_REQUEST);
+            return new ResponseEntity<>(HttpStatus.SERVICE_UNAVAILABLE);
         }
         return new ResponseEntity<>(HttpStatus.OK);
     }
