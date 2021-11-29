@@ -10,24 +10,18 @@ import ua.edu.ucu.open.grpc.log.Log;
 import ua.edu.ucu.open.grpc.log.ReplicatedLogServiceGrpc;
 
 import javax.annotation.PostConstruct;
-import java.util.concurrent.TimeUnit;
 
 @Component
 @Slf4j
-public class AsyncReplicatedLogClientSecond implements AsyncReplicatedLogClient {
+public class AsyncReplicatedLogClientImpl implements AsyncReplicatedLogClient {
 
     private ReplicatedLogServiceGrpc.ReplicatedLogServiceFutureStub replicatedLogService;
 
     @PostConstruct
     private void init() {
         ManagedChannel managedChannel = NettyChannelBuilder
-                .forAddress("localhost", 6568)
+                .forAddress("localhost", 6567)
                 .usePlaintext()
-                .enableRetry()
-                .maxRetryAttempts(Integer.MAX_VALUE)
-                .keepAliveWithoutCalls(true)
-                .keepAliveTime(15, TimeUnit.SECONDS)
-                .keepAliveTimeout(1, TimeUnit.MINUTES)
                 .build();
 
         replicatedLogService = ReplicatedLogServiceGrpc.newFutureStub(managedChannel);
@@ -43,8 +37,10 @@ public class AsyncReplicatedLogClientSecond implements AsyncReplicatedLogClient 
         return replicatedLogService.storeLog(logToStore);
     }
 
+
+
     @Override
     public int getClientId() {
-        return 2; //hardcode
+        return 1; //hardcode
     }
 }

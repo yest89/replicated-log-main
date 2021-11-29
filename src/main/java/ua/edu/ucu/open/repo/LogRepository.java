@@ -4,6 +4,6 @@ import java.util.List;
 
 public interface LogRepository {
 
-    void add(String log);
+    void add(String log, int ordinal);
     List<String> getAll();
 }
