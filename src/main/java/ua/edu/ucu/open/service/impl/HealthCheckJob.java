@@ -19,7 +19,6 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
 @Service
@@ -27,7 +26,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class HealthCheckJob {
 
     private static final int TIME_OUT = 2;  //minutes, should be moved to spring configuration property
-    private static final AtomicInteger LOG_COUNTER = new AtomicInteger(0);
     private static final int MAX_RETRY_ATTEMPTS = Integer.MAX_VALUE; // should be moved to spring configuration property
 
     private final LogRepository logRepository;
@@ -49,10 +47,10 @@ public class HealthCheckJob {
                     throw new InconsistentException("One of the slaves are failed! It failed to recover connection");
                 }
 
-                healthCheckService.healthCheckForFirstSlave();
+                isHealthCheckForFirst = healthCheckService.healthCheckForFirstSlave();
 
                 List<String> logMessages = logRepository.getAll();
-                if (!logMessages.isEmpty()) {
+                if (!logMessages.isEmpty() && !isHealthCheckForFirst) {
                     List<ListenableFuture<Acknowledge>> futures = new ArrayList<>();
 
                     for (int i = 0; i < logMessages.size(); i++) {
@@ -63,6 +61,7 @@ public class HealthCheckJob {
                     log.info("message for slave {}", asyncReplicatedLogClientImpl.getClientId());
 
                     CompletableFuture.allOf((CompletableFuture<?>) futures).join();
+                    isHealthCheckForFirst = true;
                 }
             }
         });
@@ -80,10 +79,10 @@ public class HealthCheckJob {
                     throw new InconsistentException("One of the slaves are failed! It failed to recover connection");
                 }
 
-                healthCheckService.healthCheckForFirstSlave();
+                isHealthCheckForSecond = healthCheckService.healthCheckForFirstSlave();
 
                 List<String> logMessages = logRepository.getAll();
-                if (!logMessages.isEmpty()) {
+                if (!logMessages.isEmpty() && !isHealthCheckForSecond) {
                     List<ListenableFuture<Acknowledge>> futures = new ArrayList<>();
 
                     for (int i = 0; i < logMessages.size(); i++) {
@@ -94,6 +93,7 @@ public class HealthCheckJob {
                     log.info("message for slave {}", asyncReplicatedLogClientSecond.getClientId());
 
                     CompletableFuture.allOf((CompletableFuture<?>) futures).join();
+                    isHealthCheckForSecond = true;
                 }
             }
         });
