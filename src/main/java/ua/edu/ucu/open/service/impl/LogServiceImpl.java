@@ -31,7 +31,7 @@ public class LogServiceImpl implements LogService {
 
     private static final String ACK = "ACK";
     private static final int TIME_OUT = 2;  //minutes, should be moved to spring configuration property
-    private static final AtomicInteger LOG_COUNTER = new AtomicInteger(0);
+    private static final AtomicInteger LOG_COUNTER = new AtomicInteger(-1);
     private static final int MAX_RETRY_ATTEMPTS = Integer.MAX_VALUE; // should be moved to spring configuration property
 
     private final LogRepository logRepository;
@@ -40,7 +40,7 @@ public class LogServiceImpl implements LogService {
     private final AsyncReplicatedLogClientSecond asyncReplicatedLogClientSecond;
     private final HealthCheckService healthCheckService;
 
-    private final CountDownLatch countDownLatch = new CountDownLatch(1);
+    private CountDownLatch countDownLatch = new CountDownLatch(1);
     private String currentLogMessage;
 
     @Override
@@ -50,15 +50,15 @@ public class LogServiceImpl implements LogService {
 
     @Override
     public void add(String logMessage, WriteConcern writeConcern) throws InconsistentException, NoQuorumException {
-        log.debug("finished adding log operation!");
+        log.debug("started adding log operation!");
         checkQuorumsAlive();
 
         currentLogMessage = logMessage;
 
+        LOG_COUNTER.incrementAndGet();
         logRepository.add(logMessage, LOG_COUNTER.get());
         saveLog(writeConcern, logMessage);
 
-        LOG_COUNTER.incrementAndGet();
         log.debug("finished adding log operation!");
     }
 
@@ -100,6 +100,7 @@ public class LogServiceImpl implements LogService {
             acknowledgeFuture.addListener(new LogExecutionEvent(), MoreExecutors.directExecutor());
             acknowledgeFutureSecond.addListener(new LogExecutionEvent(), MoreExecutors.directExecutor());
             countDownLatch.await();
+            countDownLatch = new CountDownLatch(1);
         } catch (Exception e) {
             log.error("One of the slaves are failed!");
             throw new InconsistentException("One of the slaves are failed!");
@@ -139,12 +140,12 @@ public class LogServiceImpl implements LogService {
     }
 
     private void sendLogWithRetry(String logMessage, AsyncReplicatedLogClient client, Instant endOfTimeOutConnection) {
-        OperationHelper.doWithRetry(MAX_RETRY_ATTEMPTS, new OperationHelper.Operation() {
+        OperationHelper.doWithRetry(MAX_RETRY_ATTEMPTS, true, new OperationHelper.Operation() {
             @Override
             public void act() throws ExecutionException, InterruptedException, InconsistentException {
                 if (endOfTimeOutConnection.isBefore(Instant.now())) {
                     log.error("One of the slaves are failed!");
-                    throw new InconsistentException("One of the slaves are failed! It failed to recover connection");
+                    return;
                 }
 
                 if (healthCheckService.healthCheckForFirstSlave()) {

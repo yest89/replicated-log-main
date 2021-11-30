@@ -7,13 +7,14 @@ import java.util.concurrent.ExecutionException;
 
 @Slf4j
 public class OperationHelper {
-    public static void doWithRetry(int maxAttempts, Operation operation) {
+    public static void doWithRetry(int maxAttempts, boolean status, Operation operation) {
         for (int count = 0; count < maxAttempts; count++) {
             try {
                 Thread.sleep(100);
                 operation.act();
-                count = maxAttempts; //don't retry
+                count = maxAttempts - 1; //don't retry
             } catch (Exception e) {
+                status = false;
                 operation.handleException(e);
             }
         }

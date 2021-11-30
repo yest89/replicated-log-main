@@ -20,7 +20,7 @@ public class AsyncReplicatedLogClientImpl implements AsyncReplicatedLogClient {
     @PostConstruct
     private void init() {
         ManagedChannel managedChannel = NettyChannelBuilder
-                .forAddress("localhost", 6567)
+                .forAddress("host.docker.internal", 6567)
                 .usePlaintext()
                 .build();
 

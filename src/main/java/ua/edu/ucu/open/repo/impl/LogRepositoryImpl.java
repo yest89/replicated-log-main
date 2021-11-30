@@ -12,24 +12,17 @@ import java.util.concurrent.ConcurrentSkipListMap;
 @Repository
 public class LogRepositoryImpl implements LogRepository {
 
-    private final Map<Integer, String> storage = new ConcurrentSkipListMap<>();
+    private final Map<String, Integer> storage = new ConcurrentSkipListMap<>();
 
     @Override
     public void add(String log, int ordinal) {
-        storage.putIfAbsent(ordinal, log);
+        storage.putIfAbsent(log, ordinal);
     }
 
     @Override
     public List<String> getAll() {
         List<String> result = new ArrayList<>();
-        for (int i = 0; i < storage.size(); i++) {
-            if (storage.containsKey(i)) {
-                result.add(storage.get(i));
-            }
-            else {
-                break;
-            }
-        }
+        result.addAll(storage.keySet());
         return Collections.unmodifiableList(result);
     }
 }
