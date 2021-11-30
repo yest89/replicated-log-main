@@ -1,0 +1,32 @@
+version: "3.7"
+
+services:
+  master:
+    build: https://github.com/yest89/replicated-log-main.git
+    image: master-image
+    ports:
+      - "8090:8090"
+    networks:
+      - some-net
+
+  slave1:
+    build: https://github.com/yest89/replicated-log-secondary.git
+    image: slaves:slave1-image
+    ports:
+      - "8091:8091"
+      - "6567:6567"
+    networks:
+      - some-net
+    
+  slave2:
+    build: https://github.com/yest89/replicated-log-secondary.git
+    image: slaves:slave2-image
+    ports:
+      - "8092:8092"
+      - "6568:6568"
+    networks:
+      - some-net
+
+networks:
+  some-net:
+    external: true
