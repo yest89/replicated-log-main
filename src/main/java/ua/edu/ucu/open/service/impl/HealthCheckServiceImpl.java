@@ -8,6 +8,9 @@ import org.springframework.web.client.RestTemplate;
 import ua.edu.ucu.open.model.HealthCheckStatus;
 import ua.edu.ucu.open.service.HealthCheckService;
 
+import java.util.ArrayList;
+import java.util.List;
+
 @RestController
 @Slf4j
 public class HealthCheckServiceImpl implements HealthCheckService {
@@ -16,24 +19,18 @@ public class HealthCheckServiceImpl implements HealthCheckService {
     private final static String URI_FOR_FIRST_SLAVE = "http://host.docker.internal:8091/api/v1/healthcheck";
     private final static String URI_FOR_SECOND_SLAVE = "http://host.docker.internal:8092/api/v1/healthcheck";
 
+    private static final List<String> URIS = new ArrayList<>();
+
     @Autowired
     public HealthCheckServiceImpl(RestTemplateBuilder builder) {
         this.restTemplate = builder.build();
+        URIS.add(URI_FOR_FIRST_SLAVE);
+        URIS.add(URI_FOR_SECOND_SLAVE);
     }
 
     @Override
-    public boolean healthCheckForFirstSlave() {
-        RestTemplate restTemplate = new RestTemplate();
-        String status = restTemplate.getForObject(URI_FOR_FIRST_SLAVE, String.class);
-
-        return HealthCheckStatus.Healthy.name().equals(status);
-    }
-
-    @Override
-    public boolean healthCheckForSecondSlave() {
-        RestTemplate restTemplate = new RestTemplate();
-        String status = restTemplate.getForObject(URI_FOR_SECOND_SLAVE, String.class);
-
+    public boolean healthCheck(int id) {
+        String status = restTemplate.getForObject(URIS.get(id), String.class);
         return HealthCheckStatus.Healthy.name().equals(status);
     }
 }

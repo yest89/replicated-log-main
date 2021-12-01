@@ -4,23 +4,28 @@ import com.google.common.util.concurrent.ListenableFuture;
 import io.grpc.ManagedChannel;
 import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 import ua.edu.ucu.open.grpc.log.Acknowledge;
 import ua.edu.ucu.open.grpc.log.Log;
 import ua.edu.ucu.open.grpc.log.ReplicatedLogServiceGrpc;
 
 import javax.annotation.PostConstruct;
 
-@Component
 @Slf4j
 public class AsyncReplicatedLogClientImpl implements AsyncReplicatedLogClient {
 
     private ReplicatedLogServiceGrpc.ReplicatedLogServiceFutureStub replicatedLogService;
+    private int port;
+    private int id;
+
+    public AsyncReplicatedLogClientImpl(int port, int id) {
+        this.port = port;
+        this.id = id;
+    }
 
     @PostConstruct
     private void init() {
         ManagedChannel managedChannel = NettyChannelBuilder
-                .forAddress("host.docker.internal", 6567)
+                .forAddress("host.docker.internal", port)
                 .usePlaintext()
                 .build();
 
@@ -38,9 +43,8 @@ public class AsyncReplicatedLogClientImpl implements AsyncReplicatedLogClient {
     }
 
 
-
     @Override
     public int getClientId() {
-        return 1; //hardcode
+        return id;
     }
 }

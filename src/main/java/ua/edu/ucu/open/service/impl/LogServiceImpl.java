@@ -8,8 +8,6 @@ import org.springframework.stereotype.Service;
 import ua.edu.ucu.open.exception.InconsistentException;
 import ua.edu.ucu.open.exception.NoQuorumException;
 import ua.edu.ucu.open.grpc.AsyncReplicatedLogClient;
-import ua.edu.ucu.open.grpc.AsyncReplicatedLogClientImpl;
-import ua.edu.ucu.open.grpc.AsyncReplicatedLogClientSecond;
 import ua.edu.ucu.open.grpc.log.Acknowledge;
 import ua.edu.ucu.open.helper.OperationHelper;
 import ua.edu.ucu.open.model.WriteConcern;
@@ -19,10 +17,12 @@ import ua.edu.ucu.open.service.LogService;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -32,16 +32,17 @@ public class LogServiceImpl implements LogService {
     private static final String ACK = "ACK";
     private static final int TIME_OUT = 2;  //minutes, should be moved to spring configuration property
     private static final AtomicInteger LOG_COUNTER = new AtomicInteger(-1);
+    private int retryLogCounter;
     private static final int MAX_RETRY_ATTEMPTS = Integer.MAX_VALUE; // should be moved to spring configuration property
 
     private final LogRepository logRepository;
 
-    private final AsyncReplicatedLogClientImpl asyncReplicatedLogClientImpl;
-    private final AsyncReplicatedLogClientSecond asyncReplicatedLogClientSecond;
     private final HealthCheckService healthCheckService;
+    private final List<AsyncReplicatedLogClient> slaves;
 
     private CountDownLatch countDownLatch = new CountDownLatch(1);
     private String currentLogMessage;
+    public static boolean retryStatus = false;
 
     @Override
     public List<String> getAll() {
@@ -63,29 +64,35 @@ public class LogServiceImpl implements LogService {
     }
 
     private void checkQuorumsAlive() throws NoQuorumException {
-        try {
-            if (!healthCheckService.healthCheckForFirstSlave() && !healthCheckService.healthCheckForSecondSlave()) {
-                log.error("There is no quorums, the master is switched into read-only mode!");
-                throw new NoQuorumException("There is no quorums, the master is switched into read-only mode!");
+        List<Boolean> slaveStatuses = new ArrayList<>();
+        int counter = 0;
+        for (int i = 0; i < slaves.size(); i++) {
+            try {
+                slaveStatuses.add(healthCheckService.healthCheck(i));
+            } catch (Exception ex) {
+                counter++;
             }
-        } catch (Exception ex) {
+        }
+        boolean isWholeSystemBroken = slaveStatuses.stream().noneMatch(status -> status);
+        if (isWholeSystemBroken || counter == slaves.size()) {
             log.error("There is no quorums, the master is switched into read-only mode!");
             throw new NoQuorumException("There is no quorums, the master is switched into read-only mode!");
         }
     }
 
     private void saveLog(WriteConcern writeConcern, String logMessage) throws InconsistentException {
-        ListenableFuture<Acknowledge> acknowledgeFuture = asyncReplicatedLogClientImpl.storeLog(logMessage, LOG_COUNTER.get());
-        ListenableFuture<Acknowledge> acknowledgeFutureSecond = asyncReplicatedLogClientSecond.storeLog(logMessage, LOG_COUNTER.get());
+        List<ListenableFuture<Acknowledge>> acknowledgeFutures = slaves.stream()
+                .map(inst -> inst.storeLog(logMessage, LOG_COUNTER.get()))
+                .collect(Collectors.toList());
 
         switch (writeConcern) {
             case ONLY_FROM_MASTER:
                 return;
             case MASTER_AND_ONE_SECONDARY:
-                doMasterAndOneSecondary(acknowledgeFuture, acknowledgeFutureSecond);
+                doMasterAndOneSecondary(acknowledgeFutures);
                 return;
             case MASTER_AND_TWO_SECONDARIES:
-                doMasterAndTwoSecondaries(acknowledgeFuture, acknowledgeFutureSecond);
+                doMasterAndTwoSecondaries(acknowledgeFutures);
                 return;
             default:
                 log.error("There is no such write concern");
@@ -93,12 +100,11 @@ public class LogServiceImpl implements LogService {
         }
     }
 
-    private void doMasterAndOneSecondary(
-            ListenableFuture<Acknowledge> acknowledgeFuture,
-            ListenableFuture<Acknowledge> acknowledgeFutureSecond) throws InconsistentException {
+
+    private void doMasterAndOneSecondary(List<ListenableFuture<Acknowledge>> acknowledgeFutures) throws InconsistentException {
         try {
-            acknowledgeFuture.addListener(new LogExecutionEvent(), MoreExecutors.directExecutor());
-            acknowledgeFutureSecond.addListener(new LogExecutionEvent(), MoreExecutors.directExecutor());
+            acknowledgeFutures.forEach(future ->
+                    future.addListener(new LogExecutionEvent(), MoreExecutors.directExecutor()));
             countDownLatch.await();
             countDownLatch = new CountDownLatch(1);
         } catch (Exception e) {
@@ -107,50 +113,43 @@ public class LogServiceImpl implements LogService {
         }
     }
 
-    private void doMasterAndTwoSecondaries(
-            final ListenableFuture<Acknowledge> acknowledgeFuture,
-            final ListenableFuture<Acknowledge> acknowledgeFutureSecond) throws InconsistentException {
+    private void doMasterAndTwoSecondaries(List<ListenableFuture<Acknowledge>> acknowledgeFutures) throws InconsistentException {
+        Acknowledge acknowledgeFromSlave;
+        boolean isValidatedFromSlave;
+        List<Boolean> validationFromSlaves = new ArrayList<>();
 
-        Acknowledge acknowledgeFromFirstSlave;
-        Acknowledge acknowledgeFromSecondSlave;
-        boolean isValidatedFromFirstSlave = false;
-        boolean isValidatedFromSecondSlave = false;
-
-        try {
-            acknowledgeFromFirstSlave = acknowledgeFuture.get();
-            isValidatedFromFirstSlave = validateAckMessage(acknowledgeFromFirstSlave);
-        } catch (InterruptedException | ExecutionException e) {
-            log.error("One of the slaves are failed!");
-            sendLogWithRetry(currentLogMessage, asyncReplicatedLogClientImpl, Instant.now().plus(TIME_OUT, ChronoUnit.MINUTES));
+        for (int i = 0; i < acknowledgeFutures.size(); i++) {
+            try {
+                acknowledgeFromSlave = acknowledgeFutures.get(i).get();
+                isValidatedFromSlave = validateAckMessage(acknowledgeFromSlave);
+                validationFromSlaves.add(isValidatedFromSlave);
+            } catch (InterruptedException | ExecutionException e) {
+                log.error("One of the slaves are failed!");
+                sendLogWithRetry(currentLogMessage, slaves.get(i), Instant.now().plus(TIME_OUT, ChronoUnit.MINUTES));
+            }
         }
 
-        try {
-            acknowledgeFromSecondSlave = acknowledgeFutureSecond.get();
-            isValidatedFromSecondSlave = validateAckMessage(acknowledgeFromSecondSlave);
-        } catch (InterruptedException | ExecutionException e) {
-            log.error("One of the slaves are failed!");
-            sendLogWithRetry(currentLogMessage, asyncReplicatedLogClientSecond, Instant.now().plus(TIME_OUT, ChronoUnit.MINUTES));
+        for (int i = 0; i < validationFromSlaves.size(); i++) {
+            if (!validationFromSlaves.get(i)) {
+                log.error("Problem with write concern policy!");
+                throw new InconsistentException("Problem with write concern policy!");
+            }
         }
-
-        if (!isValidatedFromFirstSlave && !isValidatedFromSecondSlave) {
-            log.error("Problem with write concern policy!");
-            throw new InconsistentException("Problem with write concern policy!");
-        }
-
     }
 
     private void sendLogWithRetry(String logMessage, AsyncReplicatedLogClient client, Instant endOfTimeOutConnection) {
-        OperationHelper.doWithRetry(MAX_RETRY_ATTEMPTS, true, new OperationHelper.Operation() {
+        retryLogCounter = LOG_COUNTER.get();
+        OperationHelper.doWithRetry(MAX_RETRY_ATTEMPTS, new OperationHelper.Operation() {
             @Override
             public void act() throws ExecutionException, InterruptedException, InconsistentException {
                 if (endOfTimeOutConnection.isBefore(Instant.now())) {
                     log.error("One of the slaves are failed!");
                     return;
                 }
-
-                if (healthCheckService.healthCheckForFirstSlave()) {
+                retryStatus = true;
+                if (healthCheckService.healthCheck(client.getClientId())) {
                     ListenableFuture<Acknowledge> future =
-                            client.storeLog(logMessage, LOG_COUNTER.get());
+                            client.storeLog(logMessage, retryLogCounter);
 
                     Acknowledge acknowledge = future.get();
                     boolean success = validateAckMessage(acknowledge);
@@ -160,7 +159,7 @@ public class LogServiceImpl implements LogService {
                         throw new InconsistentException("Problem with write concern policy!");
                     }
                 }
-
+                retryStatus = false;
                 log.info("retry operation for client id {} is finished.", client.getClientId());
             }
 
