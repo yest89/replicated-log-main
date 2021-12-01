@@ -10,7 +10,7 @@ import java.util.List;
 @Configuration
 public class SlavesConfig {
 
-    private static int id = 1;
+    private static int id = 0;
 
     @Bean
     public AsyncReplicatedLogClient getFirstSlave() {
