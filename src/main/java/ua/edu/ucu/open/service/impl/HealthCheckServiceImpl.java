@@ -8,7 +8,6 @@ import org.springframework.web.client.RestTemplate;
 import ua.edu.ucu.open.model.HealthCheckStatus;
 import ua.edu.ucu.open.service.HealthCheckService;
 
-import java.util.ArrayList;
 import java.util.List;
 
 @RestController
@@ -16,21 +15,17 @@ import java.util.List;
 public class HealthCheckServiceImpl implements HealthCheckService {
 
     private RestTemplate restTemplate;
-    private final static String URI_FOR_FIRST_SLAVE = "http://host.docker.internal:8091/api/v1/healthcheck";
-    private final static String URI_FOR_SECOND_SLAVE = "http://host.docker.internal:8092/api/v1/healthcheck";
-
-    private static final List<String> URIS = new ArrayList<>();
+    private List<String> heartBeatPorts;
 
     @Autowired
-    public HealthCheckServiceImpl(RestTemplateBuilder builder) {
+    public HealthCheckServiceImpl(RestTemplateBuilder builder, List<String> heartBeatPorts) {
         this.restTemplate = builder.build();
-        URIS.add(URI_FOR_FIRST_SLAVE);
-        URIS.add(URI_FOR_SECOND_SLAVE);
+        this.heartBeatPorts = heartBeatPorts;
     }
 
     @Override
     public boolean healthCheck(int id) {
-        String status = restTemplate.getForObject(URIS.get(id), String.class);
+        String status = restTemplate.getForObject(heartBeatPorts.get(id), String.class);
         return HealthCheckStatus.Healthy.name().equals(status);
     }
 }

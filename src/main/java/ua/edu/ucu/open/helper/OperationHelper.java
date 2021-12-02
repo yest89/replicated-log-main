@@ -6,7 +6,7 @@ import ua.edu.ucu.open.exception.InconsistentException;
 
 import java.util.concurrent.ExecutionException;
 
-import static ua.edu.ucu.open.service.impl.HealthCheckJob.isHealthChecks;
+import static ua.edu.ucu.open.service.impl.RetryJob.isHealthChecks;
 
 @Slf4j
 public class OperationHelper {
