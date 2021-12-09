@@ -13,18 +13,20 @@ import javax.annotation.PostConstruct;
 public class ReplicatedLogClientImpl implements ReplicatedLogClient {
 
     private ReplicatedLogServiceGrpc.ReplicatedLogServiceBlockingStub replicatedLogServiceBlockingStub;
-    private int port;
+    private int grpcPort;
+    private int httpPort;
     private int id;
 
-    public ReplicatedLogClientImpl(int port, int id) {
-        this.port = port;
+    public ReplicatedLogClientImpl(int grpcPort, int httpPort, int id) {
+        this.grpcPort = grpcPort;
+        this.httpPort = httpPort;
         this.id = id;
     }
 
     @PostConstruct
     private void init() {
         ManagedChannel managedChannel = ManagedChannelBuilder
-                .forAddress("host.docker.internal", port)
+                .forAddress("host.docker.internal", grpcPort)
                 .usePlaintext()
                 .build();
 
@@ -47,7 +49,7 @@ public class ReplicatedLogClientImpl implements ReplicatedLogClient {
     }
 
     @Override
-    public String getPort() {
-        return String.valueOf(port);
+    public String getHttpPort() {
+        return String.valueOf(httpPort);
     }
 }

@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import ua.edu.ucu.open.exception.InconsistentException;
+import ua.edu.ucu.open.exception.NoQuorumException;
 import ua.edu.ucu.open.model.WriteConcern;
 import ua.edu.ucu.open.service.LogService;
 
@@ -37,10 +38,9 @@ public class LogController {
             logService.add(logRequest.getLog(), WriteConcern.enumFromConcern(logRequest.getWriteConcern()));
         } catch (InconsistentException e) {
             return new ResponseEntity<>(e.getMessage(), HttpStatus.SERVICE_UNAVAILABLE);
+        } catch (NoQuorumException e) {
+            return new ResponseEntity<>(e.getMessage(), HttpStatus.NOT_ACCEPTABLE);
         }
-//        catch (NoQuorumException e) {
-//            return new ResponseEntity<>(e.getMessage(), HttpStatus.NOT_ACCEPTABLE);
-//        }
         return new ResponseEntity<>(HttpStatus.OK);
     }
 }

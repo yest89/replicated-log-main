@@ -7,5 +7,5 @@ public interface ReplicatedLogClient {
 
     int getClientId();
 
-    String getPort();
+    String getHttpPort();
 }

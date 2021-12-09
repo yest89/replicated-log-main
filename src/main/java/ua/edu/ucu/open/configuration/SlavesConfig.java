@@ -7,6 +7,7 @@ import ua.edu.ucu.open.grpc.ReplicatedLogClient;
 import ua.edu.ucu.open.grpc.ReplicatedLogClientImpl;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Configuration
@@ -24,12 +25,12 @@ public class SlavesConfig {
 
     @Bean
     public ReplicatedLogClient getFirstSlave() {
-        return new ReplicatedLogClientImpl(grpcPorts.get(id), id++);
+        return new ReplicatedLogClientImpl(grpcPorts.get(id), httpPorts.get(id), id++);
     }
 
     @Bean
     public ReplicatedLogClient getSecondSlave() {
-        return new ReplicatedLogClientImpl(grpcPorts.get(id), id++);
+        return new ReplicatedLogClientImpl(grpcPorts.get(id), httpPorts.get(id), id++);
     }
 
     @Bean
@@ -38,9 +39,10 @@ public class SlavesConfig {
     }
 
     @Bean
-    public List<String> heartBeatPorts() {
+    public Map<String, String> heartBeatPorts() {
         return httpPorts.stream()
-                .map(port -> HOST + port + URI)
-                .collect(Collectors.toList());
+                .collect(Collectors.toMap(
+                        String::valueOf,
+                        port -> HOST + port + URI));
     }
 }

@@ -9,20 +9,29 @@ import ua.edu.ucu.open.grpc.ReplicatedLogClient;
 import ua.edu.ucu.open.model.HealthCheckStatus;
 import ua.edu.ucu.open.service.HealthCheckService;
 
+import java.util.Map;
+
 @RestController
 @Slf4j
 public class HealthCheckServiceImpl implements HealthCheckService {
 
     private RestTemplate restTemplate;
+    private Map<String, String> heartBeatPorts;
 
     @Autowired
-    public HealthCheckServiceImpl(RestTemplateBuilder builder) {
+    public HealthCheckServiceImpl(RestTemplateBuilder builder, Map<String, String> heartBeatPorts) {
         this.restTemplate = builder.build();
+        this.heartBeatPorts = heartBeatPorts;
     }
 
     @Override
     public boolean healthCheck(ReplicatedLogClient client) {
-        String status = restTemplate.getForObject(client.getPort(), String.class);
+        String status;
+        try {
+            status = restTemplate.getForObject(heartBeatPorts.get(client.getHttpPort()), String.class);
+        } catch (Exception ex) {
+            return Boolean.FALSE;
+        }
         return HealthCheckStatus.Healthy.name().equals(status);
     }
 }

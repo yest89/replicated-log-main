@@ -4,11 +4,13 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import ua.edu.ucu.open.exception.InconsistentException;
+import ua.edu.ucu.open.exception.NoQuorumException;
 import ua.edu.ucu.open.grpc.ReplicatedLogClient;
 import ua.edu.ucu.open.grpc.log.Acknowledge;
 import ua.edu.ucu.open.helper.OperationHelper;
 import ua.edu.ucu.open.model.WriteConcern;
 import ua.edu.ucu.open.repo.LogRepository;
+import ua.edu.ucu.open.service.HealthCheckService;
 import ua.edu.ucu.open.service.LogService;
 
 import java.time.Instant;
@@ -30,6 +32,7 @@ public class LogServiceImpl implements LogService {
     private final LogRepository logRepository;
     private final ExecutorService workerThreadPoll = Executors.newCachedThreadPool();
     private final List<ReplicatedLogClient> slaves;
+    private final HealthCheckService healthCheckService;
 
     @Override
     public List<String> getAll() {
@@ -37,9 +40,9 @@ public class LogServiceImpl implements LogService {
     }
 
     @Override
-    public void add(String logMessage, WriteConcern writeConcern) throws InconsistentException {
+    public void add(String logMessage, WriteConcern writeConcern) throws InconsistentException, NoQuorumException {
         log.debug("started adding log operation!");
-//        checkQuorumsAlive();
+        checkQuorumsAlive();
 
         LOG_COUNTER.incrementAndGet();
         logRepository.add(logMessage, LOG_COUNTER.get());
@@ -71,22 +74,15 @@ public class LogServiceImpl implements LogService {
         }
     }
 
-//    private void checkQuorumsAlive() throws NoQuorumException {
-//        List<Boolean> slaveStatuses = new ArrayList<>();
-//        int counter = 0;
-//        for (int i = 0; i < asyncSlaves.size(); i++) {
-//            try {
-//                slaveStatuses.add(healthCheckService.healthCheck(i));
-//            } catch (Exception ex) {
-//                counter++;
-//            }
-//        }
-//        boolean isWholeSystemBroken = slaveStatuses.stream().noneMatch(status -> status);
-//        if (isWholeSystemBroken || counter == asyncSlaves.size()) {
-//            log.error("There is no quorums, the master is switched into read-only mode!");
-//            throw new NoQuorumException("There is no quorums, the master is switched into read-only mode!");
-//        }
-//    }
+    private void checkQuorumsAlive() throws NoQuorumException {
+        boolean isWholeSystemBroken = slaves.stream()
+                .noneMatch(healthCheckService::healthCheck);
+
+        if (isWholeSystemBroken) {
+            log.error("There is no quorums, the master is switched into read-only mode!");
+            throw new NoQuorumException("There is no quorums, the master is switched into read-only mode!");
+        }
+    }
 
     private void sendLogWithRetry(String logMessage, ReplicatedLogClient client, Instant endOfTimeOutConnection,
                                   int counter, CountDownLatch latch) {

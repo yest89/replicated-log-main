@@ -1,6 +1,7 @@
 package ua.edu.ucu.open.service;
 
 import ua.edu.ucu.open.exception.InconsistentException;
+import ua.edu.ucu.open.exception.NoQuorumException;
 import ua.edu.ucu.open.grpc.ReplicatedLogClient;
 import ua.edu.ucu.open.model.WriteConcern;
 
@@ -11,7 +12,7 @@ public interface LogService {
 
     List<String> getAll();
 
-    void add(String log, WriteConcern writeConcern) throws InconsistentException;
+    void add(String log, WriteConcern writeConcern) throws InconsistentException, NoQuorumException;
 
     void sendLogMessage(String logMessage, CountDownLatch latch, ReplicatedLogClient slave);
 }
