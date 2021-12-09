@@ -6,12 +6,13 @@ import org.springframework.stereotype.Service;
 import ua.edu.ucu.open.exception.InconsistentException;
 import ua.edu.ucu.open.grpc.ReplicatedLogClient;
 import ua.edu.ucu.open.grpc.log.Acknowledge;
+import ua.edu.ucu.open.helper.OperationHelper;
 import ua.edu.ucu.open.model.WriteConcern;
 import ua.edu.ucu.open.repo.LogRepository;
-import ua.edu.ucu.open.service.HealthCheckService;
 import ua.edu.ucu.open.service.LogService;
 
-import java.util.ArrayList;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -24,17 +25,11 @@ public class LogServiceImpl implements LogService {
     private static final String ACK = "ACK";
     private static final int TIME_OUT = 2;  //minutes, should be moved to spring configuration property
     private static final AtomicInteger LOG_COUNTER = new AtomicInteger(-1);
-//    private int retryLogCounter;
-//    private static final int MAX_RETRY_ATTEMPTS = Integer.MAX_VALUE; // should be moved to spring configuration property
+    private static final int MAX_RETRY_ATTEMPTS = Integer.MAX_VALUE; // should be moved to spring configuration property
 
     private final LogRepository logRepository;
-
     private final ExecutorService workerThreadPoll = Executors.newCachedThreadPool();
-
-    private final HealthCheckService healthCheckService;
     private final List<ReplicatedLogClient> slaves;
-
-    public static boolean retryStatus = false;
 
     @Override
     public List<String> getAll() {
@@ -50,24 +45,30 @@ public class LogServiceImpl implements LogService {
         logRepository.add(logMessage, LOG_COUNTER.get());
 
         CountDownLatch latch = new CountDownLatch(writeConcern.getWriteConcern() - 1);
-        List<Acknowledge> resultsFromSlaves = new ArrayList<>();
-        slaves.forEach(slave -> workerThreadPoll.submit(() -> {
-            resultsFromSlaves.add(slave.storeLog(logMessage, LOG_COUNTER.get()));
-            latch.countDown();
-        }));
+        slaves.forEach(slave -> workerThreadPoll.submit(() -> sendLogMessage(logMessage, latch, slave)));
 
         try {
             latch.await(TIME_OUT, TimeUnit.MINUTES);
-            boolean failedOneOfSlaves = resultsFromSlaves.stream().anyMatch(ack -> !validateAckMessage(ack));
-            if (failedOneOfSlaves) {
-                log.error("One of the slaves are failed!");
-                throw new InconsistentException("One of the slaves are failed!");
-            }
         } catch (InterruptedException e) {
             log.error("One of the slaves are failed!");
             throw new InconsistentException("One of the slaves are failed!");
         }
         log.debug("finished adding log operation!");
+    }
+
+    public void sendLogMessage(String logMessage, CountDownLatch latch, ReplicatedLogClient slave) {
+        int counter = LOG_COUNTER.get();
+        try {
+            Acknowledge acknowledge = slave.storeLog(logMessage, counter);
+            if (validateAckMessage(acknowledge)) {
+                latch.countDown();
+            }
+        } catch (Exception e) {
+            log.error("One of the slaves are failed!");
+            sendLogWithRetry(logMessage, slave,
+                    Instant.now().plus(TIME_OUT, ChronoUnit.MINUTES),
+                    counter, latch);
+        }
     }
 
 //    private void checkQuorumsAlive() throws NoQuorumException {
@@ -87,38 +88,31 @@ public class LogServiceImpl implements LogService {
 //        }
 //    }
 
-//    private void sendLogWithRetry(String logMessage, AsyncReplicatedLogClient client, Instant endOfTimeOutConnection) {
-//        retryLogCounter = LOG_COUNTER.get();
-//        OperationHelper.doWithRetry(MAX_RETRY_ATTEMPTS, new OperationHelper.Operation() {
-//            @Override
-//            public void act() throws ExecutionException, InterruptedException, InconsistentException {
-//                if (endOfTimeOutConnection.isBefore(Instant.now())) {
-//                    log.error("One of the slaves are failed!");
-//                    return;
-//                }
-//                retryStatus = true;
-//                if (healthCheckService.healthCheck(client.getClientId())) {
-//                    ListenableFuture<Acknowledge> future =
-//                            client.storeLog(logMessage, retryLogCounter);
-//
-//                    Acknowledge acknowledge = future.get();
-//                    boolean success = validateAckMessage(acknowledge);
-//
-//                    if (!success) {
-//                        log.error("Problem with write concern policy!");
-//                        throw new InconsistentException("Problem with write concern policy!");
-//                    }
-//                }
-//                retryStatus = false;
-//                log.info("retry operation for client id {} is finished.", client.getClientId());
-//            }
-//
-//            @Override
-//            public void handleException(Exception cause) {
-//                log.error("First slave is down. Trying to recover it.");
-//            }
-//        });
-//    }
+    private void sendLogWithRetry(String logMessage, ReplicatedLogClient client, Instant endOfTimeOutConnection,
+                                  int counter, CountDownLatch latch) {
+        OperationHelper.doWithRetry(MAX_RETRY_ATTEMPTS, new OperationHelper.Operation() {
+            @Override
+            public void act() {
+                if (endOfTimeOutConnection.isBefore(Instant.now())) {
+                    log.error("One of the slaves are failed!");
+                    return;
+                }
+
+                Acknowledge acknowledge = client.storeLog(logMessage, counter);
+                if (!validateAckMessage(acknowledge)) {
+                    log.error("Validation acknowledge failed");
+                    return;
+                }
+                latch.countDown();
+                log.info("retry operation for client id {} is finished.", client.getClientId());
+            }
+
+            @Override
+            public void handleException(Exception cause) {
+                log.error("The slave {} is down. Trying to recover it.", client.getClientId());
+            }
+        });
+    }
 
     private boolean validateAckMessage(Acknowledge acknowledge) {
         return (acknowledge != null && ACK.equals(acknowledge.getMessage())) ? Boolean.TRUE : Boolean.FALSE;

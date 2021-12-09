@@ -5,27 +5,24 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestTemplate;
+import ua.edu.ucu.open.grpc.ReplicatedLogClient;
 import ua.edu.ucu.open.model.HealthCheckStatus;
 import ua.edu.ucu.open.service.HealthCheckService;
-
-import java.util.List;
 
 @RestController
 @Slf4j
 public class HealthCheckServiceImpl implements HealthCheckService {
 
     private RestTemplate restTemplate;
-    private List<String> heartBeatPorts;
 
     @Autowired
-    public HealthCheckServiceImpl(RestTemplateBuilder builder, List<String> heartBeatPorts) {
+    public HealthCheckServiceImpl(RestTemplateBuilder builder) {
         this.restTemplate = builder.build();
-        this.heartBeatPorts = heartBeatPorts;
     }
 
     @Override
-    public boolean healthCheck(int id) {
-        String status = restTemplate.getForObject(heartBeatPorts.get(id), String.class);
+    public boolean healthCheck(ReplicatedLogClient client) {
+        String status = restTemplate.getForObject(client.getPort(), String.class);
         return HealthCheckStatus.Healthy.name().equals(status);
     }
 }

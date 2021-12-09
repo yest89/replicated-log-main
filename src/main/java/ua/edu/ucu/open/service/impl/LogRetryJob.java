@@ -1,47 +1,60 @@
 package ua.edu.ucu.open.service.impl;
 
-import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.MoreExecutors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import ua.edu.ucu.open.exception.HealthCheckException;
-import ua.edu.ucu.open.exception.InconsistentException;
-import ua.edu.ucu.open.grpc.AsyncReplicatedLogClient;
-import ua.edu.ucu.open.grpc.log.Acknowledge;
-import ua.edu.ucu.open.helper.OperationHelper;
-import ua.edu.ucu.open.repo.LogRepository;
+import ua.edu.ucu.open.grpc.ReplicatedLogClient;
 import ua.edu.ucu.open.service.HealthCheckService;
+import ua.edu.ucu.open.service.LogService;
 
-import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.IntStream;
-
-import static ua.edu.ucu.open.service.impl.LogServiceImpl.retryStatus;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class RetryJob {
+public class LogRetryJob {
 
-    private static final int TIME_OUT = 2;  //minutes, should be moved to spring configuration property
-    private static final int MAX_RETRY_ATTEMPTS = Integer.MAX_VALUE; // should be moved to spring configuration property
+//    private static final int TIME_OUT = 2;  //minutes, should be moved to spring configuration property
+//    private static final int MAX_RETRY_ATTEMPTS = Integer.MAX_VALUE; // should be moved to spring configuration property
 
-    private final LogRepository logRepository;
+    private final LogService logService;
     private final HealthCheckService healthCheckService;
-//    private final List<AsyncReplicatedLogClient> slaves;
+    private final List<ReplicatedLogClient> slaves;
 
-    public static List<Boolean> isHealthChecks = Arrays.asList(true, true);
-    private CountDownLatch countDownLatch;
+    private Map<ReplicatedLogClient, Boolean> previousHeartBeatResult = new HashMap<>();
 
 //    @Async
 //    @Scheduled(fixedRate = 10000)
-//    public void checkHealthCheckForFirst() {
+    public void retry() {
+
+        Map<ReplicatedLogClient, Boolean> currentHeartBeatResult = slaves.stream()
+                .collect(Collectors.toMap(Function.identity(), healthCheckService::healthCheck));
+
+        List<ReplicatedLogClient> clientsToRetry = findClientWhoTurnsOn();
+
+        List<String> logMessages = logService.getAll();
+
+        clientsToRetry.
+                forEach(entry -> {
+                    CountDownLatch latch = new CountDownLatch(Collections.frequency(currentHeartBeatResult.keySet(), Boolean.FALSE));
+                    logMessages.forEach(log -> logService.sendLogMessage(log, latch, entry));
+                });
+
+//        currentHeartBeatResult.entrySet().stream()
+//                .filter(entry -> !entry.getValue())
+//                .forEach(entry -> {
+//                    CountDownLatch latch = new CountDownLatch(Collections.frequency(currentHeartBeatResult.keySet(), Boolean.FALSE));
+//                    logMessages.forEach(log -> logService.sendLogMessage(log, latch, entry.getKey()));
+//                });
+//                .map(entry -> logMessages.forEach(log -> entry.getValue().storeLog(log, counter.incrementAndGet()))
+
+        previousHeartBeatResult = currentHeartBeatResult;
+
 //        Instant endOfTimeOutConnection = Instant.now().plus(TIME_OUT, ChronoUnit.MINUTES);
 //        OperationHelper.doWithRetry(MAX_RETRY_ATTEMPTS, new OperationHelper.Operation() {
 //            @Override
@@ -89,12 +102,17 @@ public class RetryJob {
 //                }
 //            }
 //        });
-//    }
+    }
 
-    public class LogExecutionEvent implements Runnable {
-        @Override
-        public void run() {
-            countDownLatch.countDown();
-        }
+    private List<ReplicatedLogClient> findClientWhoTurnsOn() {
+        return previousHeartBeatResult.entrySet().stream()
+                .filter(entry -> entry.getValue().equals(
+                        previousHeartBeatResult.entrySet().stream()
+                                .filter(entry1 -> entry1.getKey().getClientId() == entry.getKey().getClientId())
+                                .findFirst()
+                                .get()
+                                .getValue()))
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toList());
     }
 }

@@ -45,4 +45,9 @@ public class ReplicatedLogClientImpl implements ReplicatedLogClient {
     public int getClientId() {
         return id;
     }
+
+    @Override
+    public String getPort() {
+        return String.valueOf(port);
+    }
 }

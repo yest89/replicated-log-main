@@ -6,8 +6,6 @@ import ua.edu.ucu.open.exception.InconsistentException;
 
 import java.util.concurrent.ExecutionException;
 
-import static ua.edu.ucu.open.service.impl.RetryJob.isHealthChecks;
-
 @Slf4j
 public class OperationHelper {
     public static void doWithRetry(int maxAttempts, Operation operation) {
@@ -16,10 +14,6 @@ public class OperationHelper {
                 Thread.sleep(100);
                 operation.act();
                 count = maxAttempts - 1; //don't retry
-            } catch (HealthCheckException e) {
-                isHealthChecks.set(Integer.parseInt(e.getMessage()), false);
-                log.error("Slave id {} is down", Integer.parseInt(e.getMessage()));
-                operation.handleException(e);
             } catch (Exception e) {
                 operation.handleException(e);
             }
