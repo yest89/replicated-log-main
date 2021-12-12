@@ -18,6 +18,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -75,10 +76,11 @@ public class LogServiceImpl implements LogService {
     }
 
     private void checkQuorumsAlive() throws NoQuorumException {
-        boolean isWholeSystemBroken = slaves.stream()
-                .noneMatch(healthCheckService::healthCheck);
-
-        if (isWholeSystemBroken) {
+        final long quorumSize = Math.round(slaves.size() / 2.0) + 1;
+        long quantityBrokenSlaves = slaves.stream()
+                .collect(Collectors.groupingBy(healthCheckService::healthCheck, Collectors.counting()))
+                .get(false);
+        if (quantityBrokenSlaves >= quorumSize) {
             log.error("There is no quorums, the master is switched into read-only mode!");
             throw new NoQuorumException("There is no quorums, the master is switched into read-only mode!");
         }

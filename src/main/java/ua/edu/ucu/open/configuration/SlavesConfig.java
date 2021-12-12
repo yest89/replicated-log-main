@@ -8,6 +8,7 @@ import ua.edu.ucu.open.grpc.ReplicatedLogClientImpl;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Configuration
@@ -44,5 +45,13 @@ public class SlavesConfig {
                 .collect(Collectors.toMap(
                         String::valueOf,
                         port -> HOST + port + URI));
+    }
+
+    @Bean
+    public Map<ReplicatedLogClient, Boolean> heartBeatStatuses() {
+        ConcurrentHashMap<ReplicatedLogClient, Boolean> result = new ConcurrentHashMap<>();
+        result.putIfAbsent(getFirstSlave(), false);
+        result.putIfAbsent(getSecondSlave(), false);
+        return result;
     }
 }
